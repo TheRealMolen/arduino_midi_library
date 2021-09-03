@@ -50,9 +50,7 @@ public:
 	{
 	};
 
-public:
-    static const bool thruActivated = true;
-    
+public:    
     void begin()
 	{
         // Initialise the Serial port

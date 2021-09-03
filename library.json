@@ -1,18 +1,16 @@
 {
-    "name": "MIDI Library",
-    "version": "5.0.2",
+    "name": "MIDI Library Lite",
+    "version": "6.0.0",
     "keywords": "midi",
     "description": "Enables MIDI I/O communications on the Arduino serial ports",
     "license": "MIT",
     "authors": {
-        "name": "Francois Best",
-        "email": "contact@francoisbest.com",
-        "url": "https://github.com/Franky47",
+        "name": "Alex Mole",
         "maintainer": true
     },
     "repository": {
         "type": "git",
-        "url": "https://github.com/FortySevenEffects/arduino_midi_library.git",
+        "url": "https://github.com/TheRealMolen/arduino_midi_library.git",
         "branch": "master"
     },
     "export": {

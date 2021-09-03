@@ -67,11 +67,6 @@ struct DefaultSettings
     */
     static const bool Use1ByteParsing = true;
 
-    /*! Maximum size of SysEx receivable. Decrease to save RAM if you don't expect
-    to receive SysEx, or adjust accordingly.
-    */
-    static const unsigned SysExMaxSize = 128;
-
     /*! Global switch to turn on/off sender ActiveSensing
     Set to true to send ActiveSensing
     Set to false will not send ActiveSensing message (will also save memory)

@@ -38,7 +38,6 @@ BEGIN_MIDI_NAMESPACE
 /*! The Message structure contains decoded data of a MIDI message
     read from the serial port with read()
  */
-template<unsigned SysExMaxSize>
 struct Message
 {
     /*! Default constructor
@@ -51,7 +50,6 @@ struct Message
         , data2(0)
         , valid(false)
     {
-        memset(sysexArray, 0, sSysExMaxSize * sizeof(DataByte));
     }
 
     inline Message(const Message& inOther)
@@ -62,15 +60,7 @@ struct Message
         , valid(inOther.valid)
         , length(inOther.length)
     {
-        if (type == midi::SystemExclusive)
-        {
-            memcpy(sysexArray, inOther.sysexArray, sSysExMaxSize * sizeof(DataByte));
-        }
     }
-
-    /*! The maximum size for the System Exclusive array.
-    */
-    static const unsigned sSysExMaxSize = SysExMaxSize;
 
     /*! The MIDI channel on which the message was recieved.
      \n Value goes from 1 to 16.
@@ -93,12 +83,6 @@ struct Message
      */
     DataByte data2;
 
-    /*! System Exclusive dedicated byte array.
-     \n Array length is stocked on 16 bits,
-     in data1 (LSB) and data2 (MSB)
-     */
-    DataByte sysexArray[sSysExMaxSize];
-
     /*! This boolean indicates if the message is valid or not.
      There is no channel consideration here,
      validity means the message respects the MIDI norm.
@@ -107,13 +91,7 @@ struct Message
 
     /*! Total Length of the message.
      */
-    unsigned length;
-
-    inline unsigned getSysExSize() const
-    {
-        const unsigned size = unsigned(data2) << 8 | data1;
-        return size > sSysExMaxSize ? sSysExMaxSize : size;
-    }
+    byte length;
 };
 
 END_MIDI_NAMESPACE

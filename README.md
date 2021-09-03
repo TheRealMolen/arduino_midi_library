@@ -1,4 +1,7 @@
-# Arduino MIDI Library
+# Arduino MIDI Library - Lightweight Fork
+
+This is a fork to reduce the memory footprint of the Midi class. It drops support for callbacks, sysex, midi thru, and a few other things I don't need.
+
 
 [![GitHub release](https://img.shields.io/github/release/FortySevenEffects/arduino_midi_library.svg?maxAge=3600)](https://github.com/FortySevenEffects/arduino_midi_library/releases/latest)
 [![License](https://img.shields.io/github/license/FortySevenEffects/arduino_midi_library.svg?maxAge=3600)](LICENSE)

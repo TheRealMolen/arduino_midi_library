@@ -65,30 +65,6 @@ static const uint8_t ErrorActiveSensingTimeout = 1;
 static const uint8_t WarningSplitSysEx = 2;
 
 // -----------------------------------------------------------------------------
-// Aliasing
-
-using ErrorCallback                = void (*)(int8_t);
-using NoteOffCallback              = void (*)(Channel channel, byte note, byte velocity);
-using NoteOnCallback               = void (*)(Channel channel, byte note, byte velocity);
-using AfterTouchPolyCallback       = void (*)(Channel channel, byte note, byte velocity);
-using ControlChangeCallback        = void (*)(Channel channel, byte, byte);
-using ProgramChangeCallback        = void (*)(Channel channel, byte);
-using AfterTouchChannelCallback    = void (*)(Channel channel, byte);
-using PitchBendCallback            = void (*)(Channel channel, int);
-using SystemExclusiveCallback      = void (*)(byte * array, unsigned size);
-using TimeCodeQuarterFrameCallback = void (*)(byte data);
-using SongPositionCallback         = void (*)(unsigned beats);
-using SongSelectCallback           = void (*)(byte songnumber);
-using TuneRequestCallback          = void (*)(void);
-using ClockCallback                = void (*)(void);
-using StartCallback                = void (*)(void);
-using TickCallback                 = void (*)(void);
-using ContinueCallback             = void (*)(void);
-using StopCallback                 = void (*)(void);
-using ActiveSensingCallback        = void (*)(void);
-using SystemResetCallback          = void (*)(void);
-
-// -----------------------------------------------------------------------------
 
 /*! Enumeration of MIDI types */
 enum MidiType: uint8_t
@@ -119,20 +95,6 @@ enum MidiType: uint8_t
     Undefined_FD          = 0xFD,
     ActiveSensing         = 0xFE,    ///< System Real Time - Active Sensing
     SystemReset           = 0xFF,    ///< System Real Time - System Reset
-};
-
-// -----------------------------------------------------------------------------
-
-/*! Enumeration of Thru filter modes */
-struct Thru
-{
-    enum Mode
-    {
-        Off                   = 0,  ///< Thru disabled (nothing passes through).
-        Full                  = 1,  ///< Fully enabled Thru (every incoming message is sent back).
-        SameChannel           = 2,  ///< Only the messages on the Input Channel will be sent back.
-        DifferentChannel      = 3,  ///< All the messages but the ones on the Input Channel will be sent back.
-    };
 };
 
 // -----------------------------------------------------------------------------

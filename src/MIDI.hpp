@@ -40,8 +40,6 @@ inline MidiInterface<Transport, Settings, Platform>::MidiInterface(Transport& in
     , mPendingMessageIndex(0)
     , mCurrentRpnNumber(0xffff)
     , mCurrentNrpnNumber(0xffff)
-    , mThruActivated(true)
-    , mThruFilterMode(Thru::Full)
     , mLastMessageSentTime(0)
     , mLastMessageReceivedTime(0)
     , mSenderActiveSensingPeriodicity(0)
@@ -92,9 +90,6 @@ void MidiInterface<Transport, Settings, Platform>::begin(Channel inChannel)
     mMessage.data1   = 0;
     mMessage.data2   = 0;
     mMessage.length  = 0;
-
-    mThruFilterMode = Thru::Full;
-    mThruActivated  = mTransport.thruActivated;
 }
 
 // -----------------------------------------------------------------------------
@@ -125,20 +120,8 @@ void MidiInterface<Transport, Settings, Platform>::send(const MidiMessage& inMes
         const StatusByte status = getStatus(inMessage.type, inMessage.channel);
         mTransport.write(status);
 
-        if (inMessage.type != MidiType::SystemExclusive)
-        {
-            if (inMessage.length > 1) mTransport.write(inMessage.data1);
-            if (inMessage.length > 2) mTransport.write(inMessage.data2);
-        } else
-        {
-            // sysexArray does not contain the start and end tags
-            mTransport.write(MidiType::SystemExclusiveStart);
-
-            for (size_t i = 0; i < inMessage.getSysExSize(); i++)
-                mTransport.write(inMessage.sysexArray[i]);
-
-            mTransport.write(MidiType::SystemExclusiveEnd);
-        }
+        if (inMessage.length > 1) mTransport.write(inMessage.data1);
+        if (inMessage.length > 2) mTransport.write(inMessage.data2);
     }
     mTransport.endTransmission();
     updateLastSentTime();
@@ -342,41 +325,6 @@ void MidiInterface<Transport, Settings, Platform>::sendPitchBend(double inPitchV
     const int scale = inPitchValue > 0.0 ? MIDI_PITCHBEND_MAX : - MIDI_PITCHBEND_MIN;
     const int value = int(inPitchValue * double(scale));
     sendPitchBend(value, inChannel);
-}
-
-/*! \brief Generate and send a System Exclusive frame.
- \param inLength  The size of the array to send
- \param inArray   The byte array containing the data to send
- \param inArrayContainsBoundaries When set to 'true', 0xf0 & 0xf7 bytes
- (start & stop SysEx) will NOT be sent
- (and therefore must be included in the array).
- default value for ArrayContainsBoundaries is set to 'false' for compatibility
- with previous versions of the library.
- */
-template<class Transport, class Settings, class Platform>
-void MidiInterface<Transport, Settings, Platform>::sendSysEx(unsigned inLength,
-                                                    const byte* inArray,
-                                                    bool inArrayContainsBoundaries)
-{
-    const bool writeBeginEndBytes = !inArrayContainsBoundaries;
-
-    if (mTransport.beginTransmission(MidiType::SystemExclusiveStart))
-    {
-        if (writeBeginEndBytes)
-            mTransport.write(MidiType::SystemExclusiveStart);
-
-        for (unsigned i = 0; i < inLength; ++i)
-            mTransport.write(inArray[i]);
-
-        if (writeBeginEndBytes)
-            mTransport.write(MidiType::SystemExclusiveEnd);
-
-        mTransport.endTransmission();
-        updateLastSentTime();
-   }
-
-    if (Settings::UseRunningStatus)
-        mRunningStatus_TX = InvalidType;
 }
 
 /*! \brief Send a Tune Request message.
@@ -740,8 +688,6 @@ inline bool MidiInterface<Transport, Settings, Platform>::read(Channel inChannel
         mReceiverActiveSensingActivated = false;
 
         mLastError |= 1UL << ErrorActiveSensingTimeout; // set the ErrorActiveSensingTimeout bit
-        if (mErrorCallback)
-            mErrorCallback(mLastError);
     }
     #endif
 
@@ -763,8 +709,6 @@ inline bool MidiInterface<Transport, Settings, Platform>::read(Channel inChannel
         if (mLastError & (1 << (ErrorActiveSensingTimeout - 1)))
         {
             mLastError &= ~(1UL << ErrorActiveSensingTimeout); // clear the ErrorActiveSensingTimeout bit
-            if (mErrorCallback)
-                mErrorCallback(mLastError);
         }
     }
 
@@ -777,11 +721,6 @@ inline bool MidiInterface<Transport, Settings, Platform>::read(Channel inChannel
     handleNullVelocityNoteOnAsNoteOff();
 
     const bool channelMatch = inputFilter(inChannel);
-    if (channelMatch)
-        launchCallback();
-
-    thruFilter(inChannel);
-
     return channelMatch;
 }
 
@@ -881,21 +820,10 @@ bool MidiInterface<Transport, Settings, Platform>::parse()
                 mPendingMessageExpectedLength = 3;
                 break;
 
-            case SystemExclusiveStart:
-            case SystemExclusiveEnd:
-                // The message can be any length
-                // between 3 and MidiMessage::sSysExMaxSize bytes
-                mPendingMessageExpectedLength = MidiMessage::sSysExMaxSize;
-                mRunningStatus_RX = InvalidType;
-                mMessage.sysexArray[0] = pendingType;
-                break;
-
             case InvalidType:
             default:
                 // This is obviously wrong. Let's get the hell out'a here.
                 mLastError |= 1UL << ErrorParse; // set the ErrorParse bit
-                if (mErrorCallback)
-                    mErrorCallback(mLastError); // LCOV_EXCL_LINE
 
                 resetInput();
                 return false;
@@ -961,34 +889,11 @@ bool MidiInterface<Transport, Settings, Platform>::parse()
                     // Exclusive
                 case SystemExclusiveStart:
                 case SystemExclusiveEnd:
-                    if ((mMessage.sysexArray[0] == SystemExclusiveStart)
-                    ||  (mMessage.sysexArray[0] == SystemExclusiveEnd))
-                    {
-                        // Store the last byte (EOX)
-                        mMessage.sysexArray[mPendingMessageIndex++] = extracted;
-                        mMessage.type = SystemExclusive;
+                    // Well well well.. error.
+                    mLastError |= 1UL << ErrorParse; // set the error bits
 
-                        // Get length
-                        mMessage.data1   = mPendingMessageIndex & 0xff; // LSB
-                        mMessage.data2   = byte(mPendingMessageIndex >> 8);   // MSB
-                        mMessage.channel = 0;
-                        mMessage.length  = mPendingMessageIndex;
-                        mMessage.valid   = true;
-
-                        resetInput();
-
-                        return true;
-                    }
-                    else
-                    {
-                        // Well well well.. error.
-                        mLastError |= 1UL << ErrorParse; // set the error bits
-                        if (mErrorCallback)
-                            mErrorCallback(mLastError); // LCOV_EXCL_LINE
-
-                        resetInput();
-                        return false;
-                    }
+                    resetInput();
+                    return false;
                 // LCOV_EXCL_START - Coverage blind spot
                 default:
                     break;
@@ -997,46 +902,11 @@ bool MidiInterface<Transport, Settings, Platform>::parse()
         }
 
         // Add extracted data byte to pending message
-        if ((mPendingMessage[0] == SystemExclusiveStart)
-        ||  (mPendingMessage[0] == SystemExclusiveEnd))
-            mMessage.sysexArray[mPendingMessageIndex] = extracted;
-        else
-            mPendingMessage[mPendingMessageIndex] = extracted;
+        mPendingMessage[mPendingMessageIndex] = extracted;
 
         // Now we are going to check if we have reached the end of the message
         if (mPendingMessageIndex >= (mPendingMessageExpectedLength - 1))
         {
-            // SysEx larger than the allocated buffer size,
-            // Split SysEx like so:
-            //   first:  0xF0 .... 0xF0
-            //   midlle: 0xF7 .... 0xF0
-            //   last:   0xF7 .... 0xF7
-            if ((mPendingMessage[0] == SystemExclusiveStart)
-            ||  (mPendingMessage[0] == SystemExclusiveEnd))
-            {
-                auto lastByte = mMessage.sysexArray[Settings::SysExMaxSize - 1];
-                mMessage.sysexArray[Settings::SysExMaxSize - 1] = SystemExclusiveStart;
-                mMessage.type = SystemExclusive;
-
-                // Get length
-                mMessage.data1   = Settings::SysExMaxSize & 0xff; // LSB
-                mMessage.data2   = byte(Settings::SysExMaxSize >> 8); // MSB
-                mMessage.channel = 0;
-                mMessage.length  = Settings::SysExMaxSize;
-                mMessage.valid   = true;
-
-                // No need to check against the inputChannel,
-                // SysEx ignores input channel
-                launchCallback();
-
-                mMessage.sysexArray[0] = SystemExclusiveEnd;
-                mMessage.sysexArray[1] = lastByte;
-
-                mPendingMessageIndex = 2;
-
-                return false;
-            }
-
             mMessage.type = getTypeFromStatusByte(mPendingMessage[0]);
 
             if (isChannelMessage(mMessage.type))
@@ -1171,27 +1041,6 @@ inline DataByte MidiInterface<Transport, Settings, Platform>::getData2() const
     return mMessage.data2;
 }
 
-/*! \brief Get the System Exclusive byte array.
-
- @see getSysExArrayLength to get the array's length in bytes.
- */
-template<class Transport, class Settings, class Platform>
-inline const byte* MidiInterface<Transport, Settings, Platform>::getSysExArray() const
-{
-    return mMessage.sysexArray;
-}
-
-/*! \brief Get the length of the System Exclusive array.
-
- It is coded using data1 as LSB and data2 as MSB.
- \return The array's length, in bytes.
- */
-template<class Transport, class Settings, class Platform>
-inline unsigned MidiInterface<Transport, Settings, Platform>::getSysExArrayLength() const
-{
-    return mMessage.getSysExSize();
-}
-
 /*! \brief Check if a valid message is stored in the structure. */
 template<class Transport, class Settings, class Platform>
 inline bool MidiInterface<Transport, Settings, Platform>::check() const
@@ -1260,232 +1109,6 @@ bool MidiInterface<Transport, Settings, Platform>::isChannelMessage(MidiType inT
             inType == ProgramChange);
 }
 
-// -----------------------------------------------------------------------------
-
-/*! \brief Detach an external function from the given type.
-
- Use this method to cancel the effects of setHandle********.
- \param inType        The type of message to unbind.
- When a message of this type is received, no function will be called.
- */
-template<class Transport, class Settings, class Platform>
-void MidiInterface<Transport, Settings, Platform>::disconnectCallbackFromType(MidiType inType)
-{
-    switch (inType)
-    {
-        case NoteOff:               mNoteOffCallback                = nullptr; break;
-        case NoteOn:                mNoteOnCallback                 = nullptr; break;
-        case AfterTouchPoly:        mAfterTouchPolyCallback         = nullptr; break;
-        case ControlChange:         mControlChangeCallback          = nullptr; break;
-        case ProgramChange:         mProgramChangeCallback          = nullptr; break;
-        case AfterTouchChannel:     mAfterTouchChannelCallback      = nullptr; break;
-        case PitchBend:             mPitchBendCallback              = nullptr; break;
-        case SystemExclusive:       mSystemExclusiveCallback        = nullptr; break;
-        case TimeCodeQuarterFrame:  mTimeCodeQuarterFrameCallback   = nullptr; break;
-        case SongPosition:          mSongPositionCallback           = nullptr; break;
-        case SongSelect:            mSongSelectCallback             = nullptr; break;
-        case TuneRequest:           mTuneRequestCallback            = nullptr; break;
-        case Clock:                 mClockCallback                  = nullptr; break;
-        case Start:                 mStartCallback                  = nullptr; break;
-        case Tick:                  mTickCallback                   = nullptr; break;
-        case Continue:              mContinueCallback               = nullptr; break;
-        case Stop:                  mStopCallback                   = nullptr; break;
-        case ActiveSensing:         mActiveSensingCallback          = nullptr; break;
-        case SystemReset:           mSystemResetCallback            = nullptr; break;
-        default:
-            break;
-    }
-}
-
-/*! @} */ // End of doc group MIDI Callbacks
-
-// Private - launch callback function based on received type.
-template<class Transport, class Settings, class Platform>
-void MidiInterface<Transport, Settings, Platform>::launchCallback()
-{
-    if (mMessageCallback != 0) mMessageCallback(mMessage);
-
-    // The order is mixed to allow frequent messages to trigger their callback faster.
-    switch (mMessage.type)
-    {
-            // Notes
-        case NoteOff:               if (mNoteOffCallback != nullptr)               mNoteOffCallback(mMessage.channel, mMessage.data1, mMessage.data2);   break;
-        case NoteOn:                if (mNoteOnCallback != nullptr)                mNoteOnCallback(mMessage.channel, mMessage.data1, mMessage.data2);    break;
-
-            // Real-time messages
-        case Clock:                 if (mClockCallback != nullptr)                 mClockCallback();           break;
-        case Start:                 if (mStartCallback != nullptr)                 mStartCallback();           break;
-        case Tick:                  if (mTickCallback != nullptr)                  mTickCallback();            break;
-        case Continue:              if (mContinueCallback != nullptr)              mContinueCallback();        break;
-        case Stop:                  if (mStopCallback != nullptr)                  mStopCallback();            break;
-        case ActiveSensing:         if (mActiveSensingCallback != nullptr)         mActiveSensingCallback();   break;
-
-            // Continuous controllers
-        case ControlChange:         if (mControlChangeCallback != nullptr)         mControlChangeCallback(mMessage.channel, mMessage.data1, mMessage.data2);    break;
-        case PitchBend:             if (mPitchBendCallback != nullptr)             mPitchBendCallback(mMessage.channel, (int)((mMessage.data1 & 0x7f) | ((mMessage.data2 & 0x7f) << 7)) + MIDI_PITCHBEND_MIN); break;
-        case AfterTouchPoly:        if (mAfterTouchPolyCallback != nullptr)        mAfterTouchPolyCallback(mMessage.channel, mMessage.data1, mMessage.data2);    break;
-        case AfterTouchChannel:     if (mAfterTouchChannelCallback != nullptr)     mAfterTouchChannelCallback(mMessage.channel, mMessage.data1);    break;
-
-        case ProgramChange:         if (mProgramChangeCallback != nullptr)         mProgramChangeCallback(mMessage.channel, mMessage.data1);    break;
-        case SystemExclusive:       if (mSystemExclusiveCallback != nullptr)       mSystemExclusiveCallback(mMessage.sysexArray, mMessage.getSysExSize());    break;
-
-            // Occasional messages
-        case TimeCodeQuarterFrame:  if (mTimeCodeQuarterFrameCallback != nullptr)  mTimeCodeQuarterFrameCallback(mMessage.data1);    break;
-        case SongPosition:          if (mSongPositionCallback != nullptr)          mSongPositionCallback(unsigned((mMessage.data1 & 0x7f) | ((mMessage.data2 & 0x7f) << 7)));    break;
-        case SongSelect:            if (mSongSelectCallback != nullptr)            mSongSelectCallback(mMessage.data1);    break;
-        case TuneRequest:           if (mTuneRequestCallback != nullptr)           mTuneRequestCallback();    break;
-
-        case SystemReset:           if (mSystemResetCallback != nullptr)           mSystemResetCallback();    break;
-
-        // LCOV_EXCL_START - Unreacheable code, but prevents unhandled case warning.
-        case InvalidType:
-        default:
-            break;
-        // LCOV_EXCL_STOP
-    }
-}
-
 /*! @} */ // End of doc group MIDI Input
-
-// -----------------------------------------------------------------------------
-//                                  Thru
-// -----------------------------------------------------------------------------
-
-/*! \addtogroup thru
- @{
- */
-
-/*! \brief Set the filter for thru mirroring
- \param inThruFilterMode a filter mode
-
- @see Thru::Mode
- */
-template<class Transport, class Settings, class Platform>
-inline void MidiInterface<Transport, Settings, Platform>::setThruFilterMode(Thru::Mode inThruFilterMode)
-{
-    mThruFilterMode = inThruFilterMode;
-    mThruActivated  = mThruFilterMode != Thru::Off;
-}
-
-template<class Transport, class Settings, class Platform>
-inline Thru::Mode MidiInterface<Transport, Settings, Platform>::getFilterMode() const
-{
-    return mThruFilterMode;
-}
-
-template<class Transport, class Settings, class Platform>
-inline bool MidiInterface<Transport, Settings, Platform>::getThruState() const
-{
-    return mThruActivated;
-}
-
-template<class Transport, class Settings, class Platform>
-inline void MidiInterface<Transport, Settings, Platform>::turnThruOn(Thru::Mode inThruFilterMode)
-{
-    mThruActivated = true;
-    mThruFilterMode = inThruFilterMode;
-}
-
-template<class Transport, class Settings, class Platform>
-inline void MidiInterface<Transport, Settings, Platform>::turnThruOff()
-{
-    mThruActivated = false;
-    mThruFilterMode = Thru::Off;
-}
-
-
-/*! @} */ // End of doc group MIDI Thru
-
-// This method is called upon reception of a message
-// and takes care of Thru filtering and sending.
-// - All system messages (System Exclusive, Common and Real Time) are passed
-//   to output unless filter is set to Off.
-// - Channel messages are passed to the output whether their channel
-//   is matching the input channel and the filter setting
-template<class Transport, class Settings, class Platform>
-void MidiInterface<Transport, Settings, Platform>::thruFilter(Channel inChannel)
-{
-    // If the feature is disabled, don't do anything.
-    if (!mThruActivated || (mThruFilterMode == Thru::Off))
-        return;
-
-    // First, check if the received message is Channel
-    if (mMessage.type >= NoteOff && mMessage.type <= PitchBend)
-    {
-        const bool filter_condition = ((mMessage.channel == inChannel) ||
-                                       (inChannel == MIDI_CHANNEL_OMNI));
-
-        // Now let's pass it to the output
-        switch (mThruFilterMode)
-        {
-            case Thru::Full:
-                send(mMessage.type,
-                     mMessage.data1,
-                     mMessage.data2,
-                     mMessage.channel);
-                break;
-
-            case Thru::SameChannel:
-                if (filter_condition)
-                {
-                    send(mMessage.type,
-                         mMessage.data1,
-                         mMessage.data2,
-                         mMessage.channel);
-                }
-                break;
-
-            case Thru::DifferentChannel:
-                if (!filter_condition)
-                {
-                    send(mMessage.type,
-                         mMessage.data1,
-                         mMessage.data2,
-                         mMessage.channel);
-                }
-                break;
-
-            default:
-                break;
-        }
-    }
-    else
-    {
-        // Send the message to the output
-        switch (mMessage.type)
-        {
-                // Real Time and 1 byte
-            case Clock:
-            case Start:
-            case Stop:
-            case Continue:
-            case ActiveSensing:
-            case SystemReset:
-            case TuneRequest:
-                sendRealTime(mMessage.type);
-                break;
-
-            case SystemExclusive:
-                // Send SysEx (0xf0 and 0xf7 are included in the buffer)
-                sendSysEx(getSysExArrayLength(), getSysExArray(), true);
-                break;
-
-            case SongSelect:
-                sendSongSelect(mMessage.data1);
-                break;
-
-            case SongPosition:
-                sendSongPosition(mMessage.data1 | ((unsigned)mMessage.data2 << 7));
-                break;
-
-            case TimeCodeQuarterFrame:
-                sendTimeCodeQuarterFrame(mMessage.data1,mMessage.data2);
-                break;
-
-            default:
-                break; // LCOV_EXCL_LINE - Unreacheable code, but prevents unhandled case warning.
-        }
-    }
-}
 
 END_MIDI_NAMESPACE

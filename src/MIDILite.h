@@ -38,8 +38,8 @@
 
 BEGIN_MIDI_NAMESPACE
 
-#define MIDI_LIBRARY_VERSION        0x050000
-#define MIDI_LIBRARY_VERSION_MAJOR  5
+#define MIDI_LIBRARY_VERSION        0x060000
+#define MIDI_LIBRARY_VERSION_MAJOR  6
 #define MIDI_LIBRARY_VERSION_MINOR  0
 #define MIDI_LIBRARY_VERSION_PATCH  0
 
@@ -55,7 +55,7 @@ class MidiInterface
 public:
     typedef _Settings Settings;
     typedef _Platform Platform;
-    typedef Message<Settings::SysExMaxSize> MidiMessage;
+    typedef Message MidiMessage;
 
 public:
     inline  MidiInterface(Transport&);
@@ -95,10 +95,6 @@ public:
     inline void sendAfterTouch(DataByte inNoteNumber,
                                DataByte inPressure,
                                Channel inChannel);
-
-    inline void sendSysEx(unsigned inLength,
-                          const byte* inArray,
-                          bool inArrayContainsBoundaries = false);
 
     inline void sendTimeCodeQuarterFrame(DataByte inTypeNibble,
                                          DataByte inValuesNibble);
@@ -166,8 +162,6 @@ public:
     inline Channel  getChannel() const;
     inline DataByte getData1() const;
     inline DataByte getData2() const;
-    inline const byte* getSysExArray() const;
-    inline unsigned getSysExArrayLength() const;
     inline bool check() const;
 
 public:
@@ -178,73 +172,6 @@ public:
     static inline MidiType getTypeFromStatusByte(byte inStatus);
     static inline Channel getChannelFromStatusByte(byte inStatus);
     static inline bool isChannelMessage(MidiType inType);
-
-    // -------------------------------------------------------------------------
-    // Input Callbacks
-
-public:
-    inline void setHandleMessage(void (*fptr)(const MidiMessage&)) { mMessageCallback = fptr; };
-    inline void setHandleError(ErrorCallback fptr) { mErrorCallback = fptr; }
-    inline void setHandleNoteOff(NoteOffCallback fptr) { mNoteOffCallback = fptr; }
-    inline void setHandleNoteOn(NoteOnCallback fptr) { mNoteOnCallback = fptr; }
-    inline void setHandleAfterTouchPoly(AfterTouchPolyCallback fptr) { mAfterTouchPolyCallback = fptr; }
-    inline void setHandleControlChange(ControlChangeCallback fptr) { mControlChangeCallback = fptr; }
-    inline void setHandleProgramChange(ProgramChangeCallback fptr) { mProgramChangeCallback = fptr; }
-    inline void setHandleAfterTouchChannel(AfterTouchChannelCallback fptr) { mAfterTouchChannelCallback = fptr; }
-    inline void setHandlePitchBend(PitchBendCallback fptr) { mPitchBendCallback = fptr; }
-    inline void setHandleSystemExclusive(SystemExclusiveCallback fptr) { mSystemExclusiveCallback = fptr; }
-    inline void setHandleTimeCodeQuarterFrame(TimeCodeQuarterFrameCallback fptr) { mTimeCodeQuarterFrameCallback = fptr; }
-    inline void setHandleSongPosition(SongPositionCallback fptr) { mSongPositionCallback = fptr; }
-    inline void setHandleSongSelect(SongSelectCallback fptr) { mSongSelectCallback = fptr; }
-    inline void setHandleTuneRequest(TuneRequestCallback fptr) { mTuneRequestCallback = fptr; }
-    inline void setHandleClock(ClockCallback fptr) { mClockCallback = fptr; }
-    inline void setHandleStart(StartCallback fptr) { mStartCallback = fptr; }
-    inline void setHandleTick(TickCallback fptr) { mTickCallback = fptr; }
-    inline void setHandleContinue(ContinueCallback fptr) { mContinueCallback = fptr; }
-    inline void setHandleStop(StopCallback fptr) { mStopCallback = fptr; }
-    inline void setHandleActiveSensing(ActiveSensingCallback fptr) { mActiveSensingCallback = fptr; }
-    inline void setHandleSystemReset(SystemResetCallback fptr) { mSystemResetCallback = fptr; }
-
-    inline void disconnectCallbackFromType(MidiType inType);
-
-private:
-    void launchCallback();
-
-    void (*mMessageCallback)(const MidiMessage& message) = nullptr;
-    ErrorCallback mErrorCallback = nullptr;
-    NoteOffCallback mNoteOffCallback = nullptr;
-    NoteOnCallback mNoteOnCallback = nullptr;
-    AfterTouchPolyCallback mAfterTouchPolyCallback = nullptr;
-    ControlChangeCallback mControlChangeCallback = nullptr;
-    ProgramChangeCallback mProgramChangeCallback = nullptr;
-    AfterTouchChannelCallback mAfterTouchChannelCallback = nullptr;
-    PitchBendCallback mPitchBendCallback = nullptr;
-    SystemExclusiveCallback mSystemExclusiveCallback = nullptr;
-    TimeCodeQuarterFrameCallback mTimeCodeQuarterFrameCallback = nullptr;
-    SongPositionCallback mSongPositionCallback = nullptr;
-    SongSelectCallback mSongSelectCallback = nullptr;
-    TuneRequestCallback mTuneRequestCallback = nullptr;
-    ClockCallback mClockCallback = nullptr;
-    StartCallback mStartCallback = nullptr;
-    TickCallback mTickCallback = nullptr;
-    ContinueCallback mContinueCallback = nullptr;
-    StopCallback mStopCallback = nullptr;
-    ActiveSensingCallback mActiveSensingCallback = nullptr;
-    SystemResetCallback mSystemResetCallback = nullptr;
-
-    // -------------------------------------------------------------------------
-    // MIDI Soft Thru
-
-public:
-    inline Thru::Mode getFilterMode() const;
-    inline bool getThruState() const;
-
-    inline void turnThruOn(Thru::Mode inThruFilterMode = Thru::Full);
-    inline void turnThruOff();
-    inline void setThruFilterMode(Thru::Mode inThruFilterMode);
-
-private:
-    void thruFilter(byte inChannel);
 
     // -------------------------------------------------------------------------
     // MIDI Parsing
@@ -273,12 +200,10 @@ private:
     StatusByte      mRunningStatus_RX;
     StatusByte      mRunningStatus_TX;
     byte            mPendingMessage[3];
-    unsigned        mPendingMessageExpectedLength;
+    byte            mPendingMessageExpectedLength;
     unsigned        mPendingMessageIndex;
     unsigned        mCurrentRpnNumber;
     unsigned        mCurrentNrpnNumber;
-    bool            mThruActivated  : 1;
-    Thru::Mode      mThruFilterMode : 7;
     MidiMessage     mMessage;
     unsigned long   mLastMessageSentTime;
     unsigned long   mLastMessageReceivedTime;
@@ -292,15 +217,6 @@ private:
 };
 
 // -----------------------------------------------------------------------------
-
-unsigned encodeSysEx(const byte* inData,
-                     byte* outSysEx,
-                     unsigned inLength,
-                     bool inFlipHeaderBits = false);
-unsigned decodeSysEx(const byte* inSysEx,
-                     byte* outData,
-                     unsigned inLength,
-                     bool inFlipHeaderBits = false);
 
 END_MIDI_NAMESPACE
 
